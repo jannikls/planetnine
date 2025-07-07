@@ -190,9 +190,22 @@ class PlanetNinePredictor:
             
             omega = np.random.uniform(0, 360)
             Omega = np.random.uniform(0, 360)
-            M = np.random.uniform(0, 360)
+            # Sample true anomaly to get more uniform distribution of distances
+            # For highly eccentric orbits, uniform sampling in mean anomaly 
+            # leads to clustering near perihelion
+            if np.random.random() < 0.5:
+                # Sample uniformly in true anomaly (favors aphelion)
+                f = np.random.uniform(0, 2*np.pi)
+            else:
+                # Sample uniformly in eccentric anomaly then convert
+                E = np.random.uniform(0, 2*np.pi)
+                f = 2 * np.arctan2(
+                    np.sqrt(1 + e) * np.sin(E/2),
+                    np.sqrt(1 - e) * np.cos(E/2)
+                )
+            M = self._true_to_mean_anomaly(f, e)
             
-            elements = OrbitalElements.from_degrees(a, e, i, omega, Omega, 0, M)
+            elements = OrbitalElements.from_degrees(a, e, i, omega, Omega, np.degrees(f), M)
             
             try:
                 self._setup_simulation()
@@ -285,6 +298,55 @@ class PlanetNinePredictor:
         magnitude = ref_mag + 5 * np.log10(distance_au / ref_dist)
         
         return magnitude
+
+
+    def _mean_to_true_anomaly(self, M: float, e: float) -> float:
+        """Convert mean anomaly to true anomaly using Kepler's equation.
+        
+        Args:
+            M: Mean anomaly in radians
+            e: Eccentricity
+            
+        Returns:
+            True anomaly in radians
+        """
+        # Solve Kepler's equation: M = E - e*sin(E) for eccentric anomaly E
+        E = M  # Initial guess
+        for _ in range(10):  # Newton-Raphson iteration
+            E_new = E - (E - e * np.sin(E) - M) / (1 - e * np.cos(E))
+            if abs(E_new - E) < 1e-10:
+                break
+            E = E_new
+        
+        # Convert eccentric anomaly to true anomaly
+        f = 2 * np.arctan2(
+            np.sqrt(1 + e) * np.sin(E/2),
+            np.sqrt(1 - e) * np.cos(E/2)
+        )
+        
+        return f
+    
+    def _true_to_mean_anomaly(self, f: float, e: float) -> float:
+        """Convert true anomaly to mean anomaly.
+        
+        Args:
+            f: True anomaly in radians
+            e: Eccentricity
+            
+        Returns:
+            Mean anomaly in radians
+        """
+        # Convert true anomaly to eccentric anomaly
+        E = 2 * np.arctan2(
+            np.sqrt(1 - e) * np.sin(f/2),
+            np.sqrt(1 + e) * np.cos(f/2)
+        )
+        
+        # Convert eccentric anomaly to mean anomaly
+        M = E - e * np.sin(E)
+        
+        # Normalize to [0, 2π]
+        return M % (2 * np.pi)
 
 
 class TNOClusteringAnalyzer:

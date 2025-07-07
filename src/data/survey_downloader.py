@@ -38,7 +38,8 @@ class DECaLSDownloader(SurveyDownloader):
     def __init__(self):
         super().__init__('decals')
         self.base_url = "https://www.legacysurvey.org/viewer/"
-        self.cutout_url = self.base_url + "fits-cutout"
+        self.cutout_url = self.base_url + "cutout.fits"
+        self.catalog_url = "https://www.legacysurvey.org/viewer/cat.json"
         
     def download_region(self, ra_center: float, dec_center: float,
                        width: float, height: float,
@@ -46,8 +47,16 @@ class DECaLSDownloader(SurveyDownloader):
         """Download DECaLS cutouts for a region."""
         downloaded_files = []
         
-        width_arcsec = width * 3600
-        height_arcsec = height * 3600
+        # Calculate size in pixels - DECaLS uses 0.262 arcsec/pixel
+        width_pixels = int((width * 3600) / self.survey_config['pixel_scale'])
+        height_pixels = int((height * 3600) / self.survey_config['pixel_scale'])
+        
+        # Limit to maximum cutout size
+        max_size = 512
+        if width_pixels > max_size or height_pixels > max_size:
+            logger.warning(f"Requested size ({width_pixels}x{height_pixels}) exceeds max {max_size}x{max_size}")
+            width_pixels = min(width_pixels, max_size)
+            height_pixels = min(height_pixels, max_size)
         
         for band in self.survey_config['bands']:
             logger.info(f"Downloading DECaLS {band}-band for RA={ra_center}, Dec={dec_center}")
@@ -55,9 +64,8 @@ class DECaLSDownloader(SurveyDownloader):
             params = {
                 'ra': ra_center,
                 'dec': dec_center,
-                'width': int(width_arcsec),
-                'height': int(height_arcsec),
-                'layer': f'ls-dr9-{band}',
+                'size': max(width_pixels, height_pixels),  # Use square cutouts
+                'layer': 'ls-dr10',  # Use latest data release
                 'pixscale': self.survey_config['pixel_scale'],
                 'bands': band
             }
@@ -89,16 +97,16 @@ class DECaLSDownloader(SurveyDownloader):
         """Download DECaLS source catalog for a region."""
         logger.info(f"Downloading DECaLS catalog for RA={ra_center}, Dec={dec_center}, radius={radius}")
         
-        catalog_url = "https://www.legacysurvey.org/viewer/cat.json"
         params = {
             'ralo': ra_center - radius,
             'rahi': ra_center + radius,
             'declo': dec_center - radius,
             'dechi': dec_center + radius,
+            'format': 'json'
         }
         
         try:
-            response = requests.get(catalog_url, params=params, timeout=300)
+            response = requests.get(self.catalog_url, params=params, timeout=300)
             response.raise_for_status()
             
             filename = f"decals_catalog_{ra_center:.2f}_{dec_center:.2f}.json"
