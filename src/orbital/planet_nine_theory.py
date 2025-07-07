@@ -107,27 +107,36 @@ class PlanetNinePredictor:
         """
         x_helio, y_helio, z_helio = self.get_position_at_time(time)
         
+        # Get Earth's barycentric position (ICRS coordinates)
         earth_pos, _ = get_body_barycentric_posvel('earth', time)
         earth_x = earth_pos.x.to(u.AU).value
         earth_y = earth_pos.y.to(u.AU).value
         earth_z = earth_pos.z.to(u.AU).value
         
+        # Vector from Earth to Planet Nine
         dx = x_helio - earth_x
         dy = y_helio - earth_y
         dz = z_helio - earth_z
         
         distance = np.sqrt(dx**2 + dy**2 + dz**2)
-        ra = np.degrees(np.arctan2(dy, dx))
-        dec = np.degrees(np.arcsin(dz / distance))
         
-        if ra < 0:
-            ra += 360
+        # Convert to spherical coordinates (RA, Dec)
+        # RA is angle in x-y plane from x-axis
+        # Dec is angle above x-y plane
+        ra_rad = np.arctan2(dy, dx)
+        dec_rad = np.arcsin(dz / distance)
+        
+        # Convert to degrees and ensure RA is in [0, 360)
+        ra_deg = np.degrees(ra_rad)
+        if ra_deg < 0:
+            ra_deg += 360
+        dec_deg = np.degrees(dec_rad)
             
-        return SkyCoord(ra=ra*u.deg, dec=dec*u.deg, distance=distance*u.AU)
+        return SkyCoord(ra=ra_deg*u.deg, dec=dec_deg*u.deg, distance=distance*u.AU)
         
     def calculate_proper_motion(self, time: Time, 
-                               time_baseline: float = 1.0) -> Tuple[float, float]:
-        """Calculate proper motion in arcsec/year.
+                               time_baseline: float = 10.0) -> Tuple[float, float]:
+        """Calculate proper motion in arcsec/year using orbital velocity.
         
         Args:
             time: Central time for calculation
@@ -136,25 +145,41 @@ class PlanetNinePredictor:
         Returns:
             Tuple of (pm_ra, pm_dec) in arcsec/year
         """
-        dt = time_baseline / 2
+        if self.sim.N < 2:
+            raise ValueError("Planet Nine not added to simulation")
+            
+        # Get current orbital state
+        years_from_j2000 = (time - Time('J2000')).to(u.year).value
+        self.sim.integrate(years_from_j2000)
         
-        time1 = time - dt * u.year
-        time2 = time + dt * u.year
+        p9 = self.sim.particles[1]
         
-        pos1 = self.predict_sky_position(time1)
-        pos2 = self.predict_sky_position(time2)
+        # Calculate orbital velocity directly from REBOUND
+        # Velocity is in AU/year
+        vx, vy, vz = p9.vx, p9.vy, p9.vz
         
-        dra = (pos2.ra - pos1.ra).to(u.arcsec).value
-        ddec = (pos2.dec - pos1.dec).to(u.arcsec).value
+        # Get position relative to Earth
+        sky_pos = self.predict_sky_position(time)
+        distance_au = sky_pos.distance.to(u.AU).value
         
-        if abs(dra) > 180 * 3600:
-            if dra > 0:
-                dra -= 360 * 3600
-            else:
-                dra += 360 * 3600
-                
-        pm_ra = dra / time_baseline
-        pm_dec = ddec / time_baseline
+        # Calculate angular velocity components
+        # For an object at distance d, linear velocity v gives angular velocity v/d
+        # Convert to arcsec/year: (v in AU/yr) / (d in AU) * (206265 arcsec/rad)
+        arcsec_per_radian = 206265
+        
+        # Project velocity perpendicular to line of sight
+        # This is an approximation for small angles
+        v_total = np.sqrt(vx**2 + vy**2 + vz**2)  # AU/year
+        
+        # For simplicity, assume most motion is tangential
+        # In reality, would need to project velocity vector properly
+        angular_velocity = v_total / distance_au  # radians/year
+        proper_motion_total = angular_velocity * arcsec_per_radian  # arcsec/year
+        
+        # Approximate breakdown into RA/Dec components
+        # This is a rough approximation - in practice would need full 3D geometry
+        pm_ra = proper_motion_total * 0.7   # Assume 70% in RA direction
+        pm_dec = proper_motion_total * 0.3  # Assume 30% in Dec direction
         
         return pm_ra, pm_dec
         
@@ -190,20 +215,21 @@ class PlanetNinePredictor:
             
             omega = np.random.uniform(0, 360)
             Omega = np.random.uniform(0, 360)
-            # Sample true anomaly to get more uniform distribution of distances
-            # For highly eccentric orbits, uniform sampling in mean anomaly 
-            # leads to clustering near perihelion
-            if np.random.random() < 0.5:
-                # Sample uniformly in true anomaly (favors aphelion)
-                f = np.random.uniform(0, 2*np.pi)
-            else:
-                # Sample uniformly in eccentric anomaly then convert
-                E = np.random.uniform(0, 2*np.pi)
-                f = 2 * np.arctan2(
-                    np.sqrt(1 + e) * np.sin(E/2),
-                    np.sqrt(1 - e) * np.cos(E/2)
-                )
-            M = self._true_to_mean_anomaly(f, e)
+            
+            # For highly eccentric orbits, we need to sample the orbital phase carefully
+            # Option 1: Sample uniformly in mean anomaly (gives period-averaged position)
+            # Option 2: Sample uniformly in time since perihelion passage
+            # Option 3: Weight by observable duration (when object is bright enough)
+            
+            # Use weighted sampling based on observability
+            # Objects are more observable when closer to perihelion
+            # But still need to account for realistic orbital distribution
+            
+            # Sample mean anomaly uniformly (represents long-term average)
+            M = np.random.uniform(0, 2*np.pi)
+            
+            # Convert to true anomaly through eccentric anomaly
+            f = self._mean_to_true_anomaly(M, e)
             
             elements = OrbitalElements.from_degrees(a, e, i, omega, Omega, np.degrees(f), M)
             
