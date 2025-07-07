@@ -36,3 +36,26 @@ build/
 __pycache__/
 *.pyc
 venv/
+
+# Data files - these should not be in version control
+data/
+*.fits
+*.json
+!config/*.json
+!config/*.yaml
+
+# Results and outputs
+results/
+logs/
+
+# Large files
+*.h5
+*.hdf5
+*.pkl
+*.npy
+*.npz
+
+# Temporary files
+*.tmp
+*.temp
+.DS_Store

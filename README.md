@@ -70,14 +70,19 @@ planetnine/
 │   ├── processing/        # Image processing pipeline
 │   ├── detection/         # ML detection models
 │   └── validation/        # Candidate validation
-├── data/
+├── config/               # Configuration files (version controlled)
+├── data/                 # Downloaded and processed data (NOT in git)
 │   ├── raw/              # Downloaded survey data
 │   ├── processed/        # Processed images
 │   └── candidates/       # Detected candidates
-├── config/               # Configuration files
-├── results/              # Output plots and reports
-└── logs/                 # Processing logs
+├── results/              # Output plots and reports (NOT in git)
+│   ├── plots/            # Visualizations
+│   ├── reports/          # Analysis reports
+│   └── models/           # Trained ML models
+└── logs/                 # Processing logs (NOT in git)
 ```
+
+**Note**: The `data/`, `results/`, and `logs/` directories are excluded from version control to keep the repository lightweight. Only source code and configuration are tracked.
 
 ## Configuration
 

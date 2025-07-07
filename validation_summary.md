@@ -1,5 +1,12 @@
 # Planet Nine Detection System - Validation Summary
 
+## Repository Structure Update
+
+**Important**: The project has been restructured to exclude large data files from version control:
+- `data/`, `results/`, and `logs/` directories are now git-ignored
+- Only source code and configuration files are tracked
+- Data is managed locally and should be backed up separately
+
 ## Test Results Overview
 
 ### ✅ Successful Components

@@ -10,8 +10,17 @@ CONFIG_DIR = PROJECT_ROOT / "config"
 LOGS_DIR = PROJECT_ROOT / "logs"
 RESULTS_DIR = PROJECT_ROOT / "results"
 
-for dir_path in [DATA_DIR, CONFIG_DIR, LOGS_DIR, RESULTS_DIR]:
+# Create directory structure but ensure data directories exist
+for dir_path in [CONFIG_DIR, LOGS_DIR, RESULTS_DIR]:
     dir_path.mkdir(exist_ok=True, parents=True)
+
+# Create data directories with README files
+for data_subdir in ["raw/decals", "raw/wise", "processed", "candidates"]:
+    (DATA_DIR / data_subdir).mkdir(exist_ok=True, parents=True)
+
+# Create results subdirectories
+for results_subdir in ["plots", "reports", "models"]:
+    (RESULTS_DIR / results_subdir).mkdir(exist_ok=True, parents=True)
 
 logger.add(
     LOGS_DIR / "planetnine_{time}.log",
