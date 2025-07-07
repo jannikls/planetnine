@@ -3,6 +3,7 @@ import rebound
 import reboundx
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
+from pathlib import Path
 from astropy.coordinates import SkyCoord, get_body_barycentric_posvel
 from astropy.time import Time
 from astropy import units as u
