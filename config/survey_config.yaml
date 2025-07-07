@@ -1,0 +1,77 @@
+surveys:
+  decals:
+    name: "Dark Energy Camera Legacy Survey"
+    base_url: "https://portal.nersc.gov/cfs/cosmo/data/legacysurvey/"
+    data_release: "dr9"
+    bands: ["g", "r", "z"]
+    pixel_scale: 0.262  # arcsec/pixel
+    depth_limits:
+      g: 24.0
+      r: 23.4
+      z: 22.5
+    
+  wise:
+    name: "Wide-field Infrared Survey Explorer"
+    base_url: "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query"
+    catalogs:
+      - "allwise_p3as_psd"  # AllWISE Source Catalog
+      - "neowiser_p1bs_psd"  # NEOWISE-R Single Exposures
+    bands: ["W1", "W2", "W3", "W4"]
+    pixel_scale: 2.75  # arcsec/pixel
+    depth_limits:
+      W1: 16.8
+      W2: 15.6
+      W3: 11.3
+      W4: 8.0
+
+search_regions:
+  # High probability regions based on theoretical predictions
+  region_1:
+    name: "Northern Spring Region"
+    ra_center: 45.0   # degrees
+    dec_center: 20.0  # degrees
+    width: 3.0        # degrees
+    height: 3.0       # degrees
+    
+  region_2:
+    name: "Opposition Region"
+    ra_center: 180.0
+    dec_center: -10.0
+    width: 3.0
+    height: 3.0
+    
+  region_3:
+    name: "Southern Winter Region"
+    ra_center: 270.0
+    dec_center: -25.0
+    width: 3.0
+    height: 3.0
+
+planet_nine:
+  # Batygin & Brown (2016) parameters
+  orbital_elements:
+    a_min: 400    # AU, semi-major axis
+    a_max: 800    # AU
+    a_nominal: 600
+    
+    e_min: 0.2    # eccentricity
+    e_max: 0.8
+    e_nominal: 0.6
+    
+    i_min: 15     # degrees, inclination
+    i_max: 25
+    i_nominal: 20
+    
+    mass_min: 5   # Earth masses
+    mass_max: 10
+    mass_nominal: 7
+    
+  expected_motion:
+    proper_motion_min: 0.2  # arcsec/year
+    proper_motion_max: 0.8  # arcsec/year
+    
+  magnitude_estimates:
+    # Approximate magnitudes at different distances
+    V_mag_600AU: 22.0
+    r_mag_600AU: 21.5
+    W1_mag_600AU: 18.0

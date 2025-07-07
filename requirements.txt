@@ -1,0 +1,43 @@
+# Core astronomy libraries
+astropy>=5.3
+astroquery>=0.4.6
+photutils>=1.9
+rebound>=3.28
+reboundx>=3.10
+ccdproc>=2.4
+
+# Image processing
+opencv-python>=4.8
+scikit-image>=0.21
+sep>=1.2  # Source Extractor Python
+
+# Machine Learning
+scikit-learn>=1.3
+tensorflow>=2.13
+torch>=2.0
+xgboost>=1.7
+
+# Data handling
+numpy>=1.24
+pandas>=2.0
+h5py>=3.9
+fitsio>=1.1.8
+
+# Visualization
+matplotlib>=3.7
+seaborn>=0.12
+plotly>=5.15
+
+# Utilities
+tqdm>=4.65
+requests>=2.31
+beautifulsoup4>=4.12
+pyyaml>=6.0
+loguru>=0.7
+
+# Development
+pytest>=7.4
+black>=23.7
+flake8>=6.1
+ipykernel>=6.25
+jupyter>=1.0
