@@ -24,8 +24,92 @@ from astropy import units as u
 from astropy.time import Time
 
 from src.config import RESULTS_DIR, DATA_DIR
-from run_full_pipeline import PlanetNinePipeline
-from src.orbital.planet_nine_theory import PlanetNinePredictor
+
+
+def process_region_worker(region_data: Dict) -> Dict:
+    """Worker function for processing a single region (picklable for multiprocessing)."""
+    # Import inside function to avoid serialization issues
+    import sys
+    import os
+    import time
+    from pathlib import Path
+    
+    # Add current directory to path
+    current_dir = Path(__file__).parent
+    sys.path.insert(0, str(current_dir))
+    
+    from run_full_pipeline import PlanetNinePipeline
+    from loguru import logger
+    import pandas as pd
+    
+    region_id = region_data['region_id']
+    logger.info(f"Worker processing region {region_id}")
+    start_time = time.time()
+    
+    try:
+        # Create pipeline for this region
+        target_region = {
+            'ra': region_data['ra_center'],
+            'dec': region_data['dec_center'],
+            'width': region_data['width'],
+            'height': region_data['height']
+        }
+        pipeline = PlanetNinePipeline(target_region)
+        
+        # Run detection pipeline
+        logger.info(f"Downloading data for region {region_id}")
+        image_files = pipeline.step1_download_data()
+        
+        if not image_files:
+            raise ValueError("No images downloaded for region")
+        
+        logger.info(f"Processing {len(image_files)} images")
+        diff_images = pipeline.step2_process_images()
+        
+        logger.info(f"Detecting candidates in {len(diff_images)} difference images")
+        candidates = pipeline.step3_detect_candidates()
+        
+        logger.info(f"Validating {len(candidates)} candidates")
+        validation_df = pipeline.step4_validate_candidates()
+        
+        # Calculate summary statistics
+        total_candidates = len(candidates)
+        high_quality = len([c for c in candidates if c.get('quality_score', 0) > 0.5])
+        planet_nine = len([c for c in candidates if c.get('is_planet_nine_candidate', False)])
+        
+        processing_time = time.time() - start_time
+        
+        # Return serializable result
+        return {
+            'region_id': region_id,
+            'status': 'completed',
+            'processing_time': processing_time,
+            'total_candidates': total_candidates,
+            'high_quality_candidates': high_quality,
+            'planet_nine_candidates': planet_nine,
+            'candidates': candidates,
+            'validation_summary': {
+                'known_objects': (validation_df.get('is_known_object', pd.Series([])) == True).sum() if len(validation_df) > 0 and 'is_known_object' in validation_df.columns else 0,
+                'unknown_objects': (validation_df.get('is_known_object', pd.Series([])) == False).sum() if len(validation_df) > 0 and 'is_known_object' in validation_df.columns else 0
+            } if len(validation_df) > 0 else {'known_objects': 0, 'unknown_objects': 0}
+        }
+        
+    except Exception as e:
+        processing_time = time.time() - start_time
+        error_msg = str(e)
+        logger.error(f"Failed to process region {region_id}: {error_msg}")
+        
+        return {
+            'region_id': region_id,
+            'status': 'failed',
+            'processing_time': processing_time,
+            'total_candidates': 0,
+            'high_quality_candidates': 0,
+            'planet_nine_candidates': 0,
+            'candidates': [],
+            'error_message': error_msg,
+            'validation_summary': {'known_objects': 0, 'unknown_objects': 0}
+        }
 
 
 @dataclass
@@ -80,8 +164,7 @@ class LargeScaleSearchManager:
         self.db_path = self.results_dir / "search_progress.db"
         self._init_database()
         
-        # Initialize region generator
-        self.predictor = PlanetNinePredictor()
+        # Note: Region generation is done statically, not using orbital predictor for this demo
         
     def _init_database(self):
         """Initialize SQLite database for tracking search progress."""
@@ -455,21 +538,54 @@ class LargeScaleSearchManager:
         failed_regions = []
         
         with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
-            # Submit all regions for processing
-            future_to_region = {
-                executor.submit(self.process_region, region): region 
+            # Submit all regions for processing (convert to serializable dict)
+            region_data_list = [
+                {
+                    'region_id': region.region_id,
+                    'ra_center': region.ra_center,
+                    'dec_center': region.dec_center,
+                    'width': region.width,
+                    'height': region.height,
+                    'priority': region.priority,
+                    'theoretical_basis': region.theoretical_basis
+                }
                 for region in regions
+            ]
+            
+            future_to_region = {
+                executor.submit(process_region_worker, region_data): region_data['region_id']
+                for region_data in region_data_list
             }
             
             # Collect results as they complete
             for future in as_completed(future_to_region):
-                region = future_to_region[future]
+                region_id = future_to_region[future]
                 try:
-                    result = future.result()
+                    result_dict = future.result()
+                    
+                    # Convert dict result to SearchResult object
+                    result = SearchResult(
+                        region_id=result_dict['region_id'],
+                        processing_time=result_dict['processing_time'],
+                        total_candidates=result_dict['total_candidates'],
+                        high_quality_candidates=result_dict['high_quality_candidates'],
+                        planet_nine_candidates=result_dict['planet_nine_candidates'],
+                        status=result_dict['status'],
+                        error_message=result_dict.get('error_message'),
+                        validation_summary=result_dict.get('validation_summary')
+                    )
+                    
                     results.append(result)
                     
+                    # Store candidates in database if successful
+                    if result.status == 'completed' and 'candidates' in result_dict:
+                        self._store_candidates(result.region_id, result_dict['candidates'])
+                    
+                    # Update database with results
+                    self._update_region_completion(result.region_id, result)
+                    
                     if result.status == 'failed':
-                        failed_regions.append(region)
+                        failed_regions.append(region_id)
                         
                     # Log progress
                     completed = len(results)
@@ -477,8 +593,8 @@ class LargeScaleSearchManager:
                     logger.info(f"Progress: {completed}/{total} regions completed")
                     
                 except Exception as e:
-                    logger.error(f"Region {region.region_id} generated exception: {e}")
-                    failed_regions.append(region)
+                    logger.error(f"Region {region_id} generated exception: {e}")
+                    failed_regions.append(region_id)
         
         # Analyze patterns across all regions
         pattern_analysis = self._analyze_cross_region_patterns()
@@ -519,6 +635,28 @@ class LargeScaleSearchManager:
         
         for i, candidate in enumerate(candidates):
             detection_id = f"{region_id}_{i:04d}"
+            
+            # Calculate quality score from available metrics
+            match_score = candidate.get('match_score', 0)
+            flux_ratio = candidate.get('flux_ratio', 1)
+            flux_consistency = abs(1.0 - flux_ratio)  # How close to 1.0
+            quality_score = match_score * (1.0 - flux_consistency)
+            
+            # Convert pixel coordinates to RA/Dec (approximate)
+            # For now, use start coordinates as representative position
+            start_x = candidate.get('start_x', 0)
+            start_y = candidate.get('start_y', 0)
+            
+            # Simple pixel-to-RA/Dec conversion (needs improvement)
+            # Assuming 0.262 arcsec/pixel typical for DECaLS
+            pixel_scale = 0.262 / 3600  # degrees per pixel
+            ra = start_x * pixel_scale  # Simplified - needs WCS
+            dec = start_y * pixel_scale  # Simplified - needs WCS
+            
+            # Check if Planet Nine candidate
+            motion = candidate.get('motion_arcsec_year', 0)
+            is_planet_nine = 0.2 <= motion <= 0.8
+            
             cursor.execute("""
                 INSERT OR REPLACE INTO candidate_detections
                 (detection_id, region_id, ra, dec, motion_arcsec_year, quality_score,
@@ -526,10 +664,10 @@ class LargeScaleSearchManager:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 detection_id, region_id,
-                candidate.get('ra', 0), candidate.get('dec', 0),
-                candidate.get('motion_arcsec_year', 0), candidate.get('quality_score', 0),
-                candidate.get('start_flux', 0), candidate.get('is_planet_nine_candidate', False),
-                candidate.get('validation_status', 'unknown')
+                ra, dec,
+                motion, quality_score,
+                candidate.get('start_flux', 0), is_planet_nine,
+                'needs_validation'
             ))
         
         conn.commit()
